@@ -40,6 +40,7 @@ public static class Program
             1 => await RunStage1Async(),
             2 => await RunStage2Async(),
             3 => await RunStage3Async(),
+            4 => await RunStage4Async(),
             _ => Unknown(stage)
         };
     }
@@ -135,6 +136,92 @@ public static class Program
 
         Finish(report);
         return 0;
+    }
+
+    // Stage 4: normalize, validate against the JSON Schema, and write output/books.json.
+    private static async Task<int> RunStage4Async()
+    {
+        var report = NewReport();
+        var (books, errors) = await ExtractValidateAsync(report, includeBrokenUrl: false, retry: false);
+        WriteOutputs(books, errors);
+
+        Console.WriteLine($"books.json={books.Count} records, errors.json={(errors.Count > 0 ? $"{errors.Count} entries" : "absent")}");
+
+        Finish(report);
+        return 0;
+    }
+
+    private static async Task<(List<Book> Books, List<ErrorEntry> Errors)> ExtractValidateAsync(
+        RunReport report, bool includeBrokenUrl, bool retry)
+    {
+        var fetcher = new Fetcher();
+        var catalog = new Catalog(fetcher);
+        var extractor = new Extractor();
+        var normalizer = new Normalizer();
+        var validation = new Validation(Config.SchemaPath);
+
+        var discovery = await catalog.DiscoverAsync(report);
+        var links = discovery.UniqueUrls.ToList();
+
+        if (includeBrokenUrl)
+        {
+            var brokenUrl = new Uri(new Uri(Config.BaseUrl), "catalogue/this-book-does-not-exist_99999/index.html").AbsoluteUri;
+            links.Add(new BookLink(brokenUrl, links.Count > 0 ? links[0].SourcePage : Config.BaseUrl));
+            Console.WriteLine($"injected 1 broken url for the Stage 5 proof: {brokenUrl}");
+        }
+
+        var books = new List<Book>();
+        var errors = new List<ErrorEntry>();
+
+        foreach (var link in links)
+        {
+            try
+            {
+                var fetch = await fetcher.FetchDetailAsync(link.Url, report, retry);
+                if (!fetch.IsSuccess || fetch.Content is null)
+                {
+                    report.AddFailedPage(link.Url, fetch.Error ?? $"status {fetch.StatusCode}");
+                    errors.Add(new ErrorEntry(link.Url, $"page fetch failed: {fetch.Error ?? $"status {fetch.StatusCode}"}"));
+                    continue;
+                }
+
+                var raw = extractor.Extract(fetch.Content, link.Url, link.SourcePage, DateTime.UtcNow);
+                var book = normalizer.Normalize(raw);
+                var result = validation.Validate(book);
+                if (result.IsValid)
+                {
+                    books.Add(book);
+                }
+                else
+                {
+                    errors.Add(new ErrorEntry(link.Url, result.Reason));
+                }
+            }
+            catch (Exception ex)
+            {
+                report.AddFailedPage(link.Url, ex.Message);
+                errors.Add(new ErrorEntry(link.Url, ex.Message));
+            }
+        }
+
+        report.ValidRecords = books.Count;
+        report.InvalidRecords = errors.Count;
+        return (books, errors);
+    }
+
+    private static void WriteOutputs(List<Book> books, List<ErrorEntry> errors)
+    {
+        Directory.CreateDirectory(Config.OutputDir);
+        File.WriteAllText(Config.BooksPath, JsonSerializer.Serialize(books, JsonOptions));
+
+        if (errors.Count > 0)
+        {
+            Report.WriteErrors(errors);
+        }
+        else if (File.Exists(Config.ErrorsPath))
+        {
+            File.Delete(Config.ErrorsPath);
+        }
     }
 
     private static async Task<int> RunFullAsync(bool includeBrokenUrl)
