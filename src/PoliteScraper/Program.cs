@@ -41,6 +41,7 @@ public static class Program
             2 => await RunStage2Async(),
             3 => await RunStage3Async(),
             4 => await RunStage4Async(),
+            5 => await RunStage5Async(includeBrokenUrl),
             _ => Unknown(stage)
         };
     }
@@ -222,6 +223,20 @@ public static class Program
         {
             File.Delete(Config.ErrorsPath);
         }
+    }
+
+    // Stage 5: survive a broken page, retry transient failures, and report the run.
+    private static async Task<int> RunStage5Async(bool includeBrokenUrl)
+    {
+        var report = NewReport();
+        var (books, errors) = await ExtractValidateAsync(report, includeBrokenUrl, retry: true);
+        WriteOutputs(books, errors);
+
+        Console.WriteLine($"books.json={books.Count} records, errors.json={(errors.Count > 0 ? $"{errors.Count} entries" : "absent")}");
+        Console.WriteLine($"failed_pages={report.FailedPages}");
+
+        Finish(report);
+        return 0;
     }
 
     private static async Task<int> RunFullAsync(bool includeBrokenUrl)
