@@ -1,7 +1,16 @@
+using System.Text.Encodings.Web;
+using System.Text.Json;
+
 namespace PoliteScraper;
 
 public static class Program
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
     public static async Task<int> Main(string[] args)
     {
         var stage = -1;
@@ -30,6 +39,7 @@ public static class Program
             0 => await RunStage0Async(),
             1 => await RunStage1Async(),
             2 => await RunStage2Async(),
+            3 => await RunStage3Async(),
             _ => Unknown(stage)
         };
     }
@@ -88,6 +98,40 @@ public static class Program
         var discovery = await catalog.DiscoverAsync(report);
 
         Console.WriteLine($"catalogue_pages={discovery.CataloguePages}, discovered={discovery.Discovered}, unique_urls={discovery.UniqueUrls.Count}");
+
+        Finish(report);
+        return 0;
+    }
+
+    // Stage 3: extract the raw record (8 keys) for every discovered book.
+    private static async Task<int> RunStage3Async()
+    {
+        var report = NewReport();
+        var fetcher = new Fetcher();
+        var catalog = new Catalog(fetcher);
+        var extractor = new Extractor();
+        var discovery = await catalog.DiscoverAsync(report);
+
+        var shown = false;
+        foreach (var link in discovery.UniqueUrls)
+        {
+            var fetch = await fetcher.FetchDetailAsync(link.Url, report);
+            if (!fetch.IsSuccess || fetch.Content is null)
+            {
+                report.AddFailedPage(link.Url, fetch.Error ?? $"status {fetch.StatusCode}");
+                continue;
+            }
+
+            var raw = extractor.Extract(fetch.Content, link.Url, link.SourcePage, DateTime.UtcNow);
+            if (!shown)
+            {
+                Console.WriteLine("sample raw record:");
+                Console.WriteLine(JsonSerializer.Serialize(raw, JsonOptions));
+                shown = true;
+            }
+        }
+
+        Console.WriteLine($"detail_pages={discovery.UniqueUrls.Count}");
 
         Finish(report);
         return 0;
