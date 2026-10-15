@@ -28,6 +28,7 @@ public static class Program
         return stage switch
         {
             0 => await RunStage0Async(),
+            1 => await RunStage1Async(),
             _ => Unknown(stage)
         };
     }
@@ -63,6 +64,16 @@ public static class Program
         Console.WriteLine("  why ok here:    the site exists to be scraped, so polite crawling stays inside its purpose");
         Console.WriteLine($"  robots.txt:     {robotsStatus} — {(robotsStatus == 404 ? "no robots file found" : "robots file found")}");
 
+        Finish(report);
+        return 0;
+    }
+
+    // Stage 1: fetch and cache catalogue page 1 only.
+    private static async Task<int> RunStage1Async()
+    {
+        var report = NewReport();
+        var fetcher = new Fetcher();
+        await fetcher.FetchCataloguePageAsync(1, report);
         Finish(report);
         return 0;
     }
