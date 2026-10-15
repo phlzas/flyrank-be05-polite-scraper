@@ -29,6 +29,7 @@ public static class Program
         {
             0 => await RunStage0Async(),
             1 => await RunStage1Async(),
+            2 => await RunStage2Async(),
             _ => Unknown(stage)
         };
     }
@@ -74,6 +75,20 @@ public static class Program
         var report = NewReport();
         var fetcher = new Fetcher();
         await fetcher.FetchCataloguePageAsync(1, report);
+        Finish(report);
+        return 0;
+    }
+
+    // Stage 2: discover three catalogue pages and every unique book url.
+    private static async Task<int> RunStage2Async()
+    {
+        var report = NewReport();
+        var fetcher = new Fetcher();
+        var catalog = new Catalog(fetcher);
+        var discovery = await catalog.DiscoverAsync(report);
+
+        Console.WriteLine($"catalogue_pages={discovery.CataloguePages}, discovered={discovery.Discovered}, unique_urls={discovery.UniqueUrls.Count}");
+
         Finish(report);
         return 0;
     }
