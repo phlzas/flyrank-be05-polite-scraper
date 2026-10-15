@@ -239,9 +239,21 @@ public static class Program
         return 0;
     }
 
+    // Stage 6: the full run — classify, discover, extract, validate, report.
     private static async Task<int> RunFullAsync(bool includeBrokenUrl)
     {
-        await RunStage0Async();
+        var report = NewReport();
+        var fetcher = new Fetcher();
+        var robotsStatus = await fetcher.CheckRobotsAsync(report);
+        Console.WriteLine(robotsStatus == 404 ? "no robots file found" : $"robots.txt status {robotsStatus}");
+
+        var (books, errors) = await ExtractValidateAsync(report, includeBrokenUrl, retry: true);
+        WriteOutputs(books, errors);
+
+        Console.WriteLine($"books.json={books.Count} records, errors.json={(errors.Count > 0 ? $"{errors.Count} entries" : "absent")}");
+        Console.WriteLine($"failed_pages={report.FailedPages}");
+
+        Finish(report);
         return 0;
     }
 }
